@@ -75,7 +75,58 @@ async function run() {
             }
         }
 
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded.email;
+            const query = { email }
+            const user = await usersCollection.findOne(query);
+            if (!user || user.role !== 'admin') {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+            next();
+        }
 
+        app.get("/users/search", async (req, res) => {
+            const emailQuery = req.query.email;
+            if (!emailQuery) {
+                return res.status(400).send({ message: "Missing email query" });
+            }
+
+            const regex = new RegExp(emailQuery, "i"); // case-insensitive partial match
+
+            try {
+                const users = await usersCollection
+                    .find({ email: { $regex: regex } })
+                    // .project({ email: 1, createdAt: 1, role: 1 })
+                    .limit(10)
+                    .toArray();
+                res.send(users);
+            } catch (error) {
+                console.error("Error searching users", error);
+                res.status(500).send({ message: "Error searching users" });
+            }
+        });
+
+        // GET: Get user role by email
+        app.get('/users/:email/role', async (req, res) => {
+            try {
+                const email = req.params.email;
+
+                if (!email) {
+                    return res.status(400).send({ message: 'Email is required' });
+                }
+
+                const user = await usersCollection.findOne({ email });
+
+                if (!user) {
+                    return res.status(404).send({ message: 'User not found' });
+                }
+
+                res.send({ role: user.role || 'user' });
+            } catch (error) {
+                console.error('Error getting user role:', error);
+                res.status(500).send({ message: 'Failed to get role' });
+            }
+        });
 
 
         // Users api
@@ -91,29 +142,50 @@ async function run() {
             res.send(result);
         });
 
-        // parcels api
-        // Post the parcels
 
-        app.post('/parcels', async (req, res) => {
+        app.patch("/users/:id/role", verifyFBToken, verifyAdmin, async (req, res) => {
+            const { id } = req.params;
+            const { role } = req.body;
+
+            if (!["admin", "user"].includes(role)) {
+                return res.status(400).send({ message: "Invalid role" });
+            }
+
             try {
-                const newParcel = req.body;
-                // newParcel.createdAt = new Date();
-                const result = await parcelCollection.insertOne(newParcel);
-                res.status(201).send(result);
+                const result = await usersCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { role } }
+                );
+                res.send({ message: `User role updated to ${role}`, result });
             } catch (error) {
-                console.error('Error inserting parcel:', error);
-                res.status(500).send({ message: 'Failed to create parcel' });
+                console.error("Error updating user role", error);
+                res.status(500).send({ message: "Failed to update user role" });
             }
         });
+
+        // parcels api
         // GET: All parcels OR parcels by user (created_by), sorted by latest
         app.get('/parcels', verifyFBToken, async (req, res) => {
             try {
-                const userEmail = req.query.email;
+                const { email, payment_status, delivery_status } = req.query;
+                let query = {}
+                if (email) {
+                    query = { created_by: email }
+                }
 
-                const query = userEmail ? { created_by: userEmail } : {};
+                if (payment_status) {
+                    query.payment_status = payment_status
+                }
+
+                if (delivery_status) {
+                    query.delivery_status = delivery_status
+                }
+
                 const options = {
                     sort: { createdAt: -1 }, // Newest first
                 };
+
+                console.log('parcel query', req.query, query)
 
                 const parcels = await parcelCollection.find(query, options).toArray();
                 res.send(parcels);
@@ -122,20 +194,6 @@ async function run() {
                 res.status(500).send({ message: 'Failed to get parcels' });
             }
         });
-
-        app.delete('/parcels/:id', async (req, res) => {
-            try {
-                const id = req.params.id;
-
-                const result = await parcelCollection.deleteOne({ _id: new ObjectId(id) });
-
-                res.send(result);
-            } catch (error) {
-                console.error('Error deleting parcel:', error);
-                res.status(500).send({ message: 'Failed to delete parcel' });
-            }
-        });
-
 
         // GET: Get a specific parcel by ID
         app.get('/parcels/:id', async (req, res) => {
@@ -155,6 +213,67 @@ async function run() {
             }
         });
 
+
+        // POST: Create a new parcel
+        app.post('/parcels', async (req, res) => {
+            try {
+                const newParcel = req.body;
+                // newParcel.createdAt = new Date();
+                const result = await parcelCollection.insertOne(newParcel);
+                res.status(201).send(result);
+            } catch (error) {
+                console.error('Error inserting parcel:', error);
+                res.status(500).send({ message: 'Failed to create parcel' });
+            }
+        });
+
+        app.patch("/parcels/:id/assign", async (req, res) => {
+            const parcelId = req.params.id;
+            const { riderId, riderName } = req.body;
+
+            try {
+                // Update parcel
+                await parcelCollection.updateOne(
+                    { _id: new ObjectId(parcelId) },
+                    {
+                        $set: {
+                            delivery_status: "in_transit",
+                            assigned_rider_id: riderId,
+                            assigned_rider_name: riderName,
+                        },
+                    }
+                );
+
+                // Update rider
+                await ridersCollection.updateOne(
+                    { _id: new ObjectId(riderId) },
+                    {
+                        $set: {
+                            work_status: "in_delivery",
+                        },
+                    }
+                );
+
+                res.send({ message: "Rider assigned" });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ message: "Failed to assign rider" });
+            }
+        });
+
+        app.delete('/parcels/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+
+                const result = await parcelCollection.deleteOne({ _id: new ObjectId(id) });
+
+                res.send(result);
+            } catch (error) {
+                console.error('Error deleting parcel:', error);
+                res.status(500).send({ message: 'Failed to delete parcel' });
+            }
+        });
+
         // Riders api
         app.post('/riders', async (req, res) => {
             const rider = req.body;
@@ -162,7 +281,7 @@ async function run() {
             res.send(result);
         });
 
-        app.get("/riders/pending", async (req, res) => {
+        app.get("/riders/pending", verifyFBToken, verifyAdmin, async (req, res) => {
             try {
                 const pendingRiders = await ridersCollection
                     .find({ status: "pending" })
@@ -175,7 +294,7 @@ async function run() {
             }
         });
 
-        app.get("/riders/active", async (req, res) => {
+        app.get("/riders/active", verifyFBToken, verifyAdmin, async (req, res) => {
             const result = await ridersCollection.find({ status: "active" }).toArray();
             res.send(result);
         });
