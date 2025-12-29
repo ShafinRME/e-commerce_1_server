@@ -49,7 +49,7 @@ async function run() {
         await client.connect();
         const db = client.db('parcelDB'); // database name
         const usersCollection = db.collection('users');
-        const parcelCollection = db.collection('parcels'); // collection
+        const parcelsCollection = db.collection('parcels'); // collection
         const paymentsCollection = db.collection('payments');
         const ridersCollection = db.collection('riders');
 
@@ -187,7 +187,7 @@ async function run() {
 
                 console.log('parcel query', req.query, query)
 
-                const parcels = await parcelCollection.find(query, options).toArray();
+                const parcels = await parcelsCollection.find(query, options).toArray();
                 res.send(parcels);
             } catch (error) {
                 console.error('Error fetching parcels:', error);
@@ -200,7 +200,7 @@ async function run() {
             try {
                 const id = req.params.id;
 
-                const parcel = await parcelCollection.findOne({ _id: new ObjectId(id) });
+                const parcel = await parcelsCollection.findOne({ _id: new ObjectId(id) });
 
                 if (!parcel) {
                     return res.status(404).send({ message: 'Parcel not found' });
@@ -241,12 +241,43 @@ async function run() {
         });
 
 
+        // GET: Load completed parcel deliveries for a rider
+        app.get('/rider/completed-parcels', verifyFBToken, verifyRider, async (req, res) => {
+            try {
+                const email = req.query.email;
+
+                if (!email) {
+                    return res.status(400).send({ message: 'Rider email is required' });
+                }
+
+                const query = {
+                    assigned_rider_email: email,
+                    delivery_status: {
+                        $in: ['delivered', 'service_center_delivered']
+                    },
+                };
+
+                const options = {
+                    sort: { creation_date: -1 }, // Latest first
+                };
+
+                const completedParcels = await parcelsCollection.find(query, options).toArray();
+
+                res.send(completedParcels);
+
+            } catch (error) {
+                console.error('Error loading completed parcels:', error);
+                res.status(500).send({ message: 'Failed to load completed deliveries' });
+            }
+        });
+
+
         // POST: Create a new parcel
         app.post('/parcels', async (req, res) => {
             try {
                 const newParcel = req.body;
                 // newParcel.createdAt = new Date();
-                const result = await parcelCollection.insertOne(newParcel);
+                const result = await parcelsCollection.insertOne(newParcel);
                 res.status(201).send(result);
             } catch (error) {
                 console.error('Error inserting parcel:', error);
@@ -260,7 +291,7 @@ async function run() {
 
             try {
                 // Update parcel
-                await parcelCollection.updateOne(
+                await parcelsCollection.updateOne(
                     { _id: new ObjectId(parcelId) },
                     {
                         $set: {
@@ -289,11 +320,39 @@ async function run() {
             }
         });
 
+
+        app.patch("/parcels/:id/status", async (req, res) => {
+            const parcelId = req.params.id;
+            const { status } = req.body;
+            const updatedDoc = {
+                delivery_status: status
+            }
+
+            if (status === 'in_transit') {
+                updatedDoc.picked_at = new Date().toISOString()
+            }
+            else if (status === 'delivered') {
+                updatedDoc.delivered_at = new Date().toISOString()
+            }
+
+            try {
+                const result = await parcelsCollection.updateOne(
+                    { _id: new ObjectId(parcelId) },
+                    {
+                        $set: updatedDoc
+                    }
+                );
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ message: "Failed to update status" });
+            }
+        });
+
         app.delete('/parcels/:id', async (req, res) => {
             try {
                 const id = req.params.id;
 
-                const result = await parcelCollection.deleteOne({ _id: new ObjectId(id) });
+                const result = await parcelsCollection.deleteOne({ _id: new ObjectId(id) });
 
                 res.send(result);
             } catch (error) {
@@ -426,7 +485,7 @@ async function run() {
                 const { parcelId, email, amount, paymentMethod, transactionId } = req.body;
 
                 // 1. Update parcel's payment_status
-                const updateResult = await parcelCollection.updateOne(
+                const updateResult = await parcelsCollection.updateOne(
                     { _id: new ObjectId(parcelId) },
                     {
                         $set: {
