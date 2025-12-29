@@ -85,6 +85,17 @@ async function run() {
             next();
         }
 
+
+        const verifyRider = async (req, res, next) => {
+            const email = req.decoded.email;
+            const query = { email }
+            const user = await usersCollection.findOne(query);
+            if (!user || user.role !== 'rider') {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+            next();
+        }
+
         app.get("/users/search", async (req, res) => {
             const emailQuery = req.query.email;
             if (!emailQuery) {
@@ -346,6 +357,20 @@ async function run() {
             } catch (error) {
                 res.status(500).send({ message: "Failed to update status" });
             }
+        });
+
+        app.patch("/parcels/:id/cashout", async (req, res) => {
+            const id = req.params.id;
+            const result = await parcelsCollection.updateOne(
+                { _id: new ObjectId(id) },
+                {
+                    $set: {
+                        cashout_status: "cashed_out",
+                        cashed_out_at: new Date()
+                    }
+                }
+            );
+            res.send(result);
         });
 
         app.delete('/parcels/:id', async (req, res) => {
