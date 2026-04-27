@@ -246,7 +246,7 @@ async function run() {
             }
         });
 
-        app.patch("/parcels/:id/cashout", verifyFBToken, verifyAdmin, async (req, res) => {
+        app.patch("/parcels/:id/cashout", verifyFBToken, verifyRider, async (req, res) => {
             const id = req.params.id;
             const result = await parcelsCollection.updateOne(
                 { _id: new ObjectId(id) },
@@ -458,7 +458,7 @@ async function run() {
             res.send(result);
         });
 
-        app.patch("/riders/:id/status", async (req, res) => {
+        app.patch("/riders/:id/status", verifyFBToken, verifyAdmin, async (req, res) => {
             const { id } = req.params;
             const { status, email } = req.body;
             const query = { _id: new ObjectId(id) }
