@@ -499,17 +499,6 @@ async function run() {
 
         // ============  TRACKING ENDPOINTS ============
 
-        app.get("/trackings/:trackingId", async (req, res) => {
-            const trackingId = req.params.trackingId;
-
-            const updates = await trackingsCollection
-                .find({ tracking_id: trackingId })
-                .sort({ timestamp: 1 }) // sort by time ascending
-                .toArray();
-
-            res.json(updates);
-        });
-
         app.post("/trackings", async (req, res) => {
             const update = req.body;
 
@@ -522,26 +511,8 @@ async function run() {
             res.status(201).json(result);
         });
 
-
-
-        // GET: Get tracking updates for a specific parcel by parcel ID
-        app.get("/trackings/parcel/:parcelId", async (req, res) => {
-            const parcelId = req.params.parcelId;
-
-            try {
-                const updates = await trackingsCollection
-                    .find({ parcel_id: parcelId })
-                    .sort({ timestamp: 1 }) // sort by time ascending
-                    .toArray();
-
-                res.json(updates);
-            } catch (error) {
-                console.error("Error fetching tracking updates:", error);
-                res.status(500).json({ message: "Failed to fetch tracking updates" });
-            }
-        });
-
         // POST: Admin creates a new tracking update
+
         app.post("/trackings/admin", verifyFBToken, verifyAdmin, async (req, res) => {
             try {
                 const { parcel_id, status, location, details, updated_by } = req.body;
@@ -584,6 +555,40 @@ async function run() {
                 res.status(500).json({ message: "Failed to create tracking update" });
             }
         });
+
+        app.get("/trackings/:trackingId", async (req, res) => {
+            const trackingId = req.params.trackingId;
+
+            const updates = await trackingsCollection
+                .find({ tracking_id: trackingId })
+                .sort({ timestamp: 1 }) // sort by time ascending
+                .toArray();
+
+            res.json(updates);
+        });
+
+
+
+
+
+        // GET: Get tracking updates for a specific parcel by parcel ID
+        app.get("/trackings/parcel/:parcelId", async (req, res) => {
+            const parcelId = req.params.parcelId;
+
+            try {
+                const updates = await trackingsCollection
+                    .find({ parcel_id: parcelId })
+                    .sort({ timestamp: 1 }) // sort by time ascending
+                    .toArray();
+
+                res.json(updates);
+            } catch (error) {
+                console.error("Error fetching tracking updates:", error);
+                res.status(500).json({ message: "Failed to fetch tracking updates" });
+            }
+        });
+
+
 
         // PATCH: Admin updates a tracking entry
         app.patch("/trackings/:trackingId", verifyFBToken, verifyAdmin, async (req, res) => {
